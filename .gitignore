@@ -1,0 +1,3 @@
+# Pre-fetched third-party tarballs used by the build. Large (~500 MB
+# combined) and downloadable at build time by ./build.sh.
+prefetch/

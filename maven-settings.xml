@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Force every Maven request through Maven Central. Atlas 2.5.0's
+  transitive POMs reference a number of dead or very slow repos
+  (apache.snapshots, apache-staging, java.net, jboss, typesafe,
+  maven-restlet). Without this mirror, each artifact resolution can
+  spend 5+ minutes falling through timeouts before finally hitting
+  central — which balloons the build past useful timeouts.
+
+  `mirrorOf` uses `external:*` so that repositories declared with
+  file:// URLs (used for the local hbase/solr tarball inputs of the
+  embedded-hbase-solr profile) are NOT mirrored.
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <mirrors>
+    <mirror>
+      <id>central-mirror</id>
+      <name>Central-only mirror</name>
+      <url>https://repo.maven.apache.org/maven2</url>
+      <mirrorOf>external:*,!apache.snapshots</mirrorOf>
+    </mirror>
+  </mirrors>
+</settings>
