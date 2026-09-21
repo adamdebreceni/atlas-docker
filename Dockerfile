@@ -101,6 +101,7 @@ RUN apt-get update \
       procps \
       curl \
       tini \
+      lsof \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/atlas /opt/atlas
@@ -122,7 +123,8 @@ ENV ATLAS_HOME=/opt/atlas \
     ATLAS_SERVER_HEAP="-Xms1g -Xmx2g" \
     KAFKA_ADVERTISED_HOST=localhost \
     KAFKA_ADVERTISED_PORT=9092 \
-    ATLAS_VERSION=${ATLAS_VERSION}
+    ATLAS_VERSION=${ATLAS_VERSION} \
+    SOLR_ULIMIT_CHECKS=false
 
 # 21000 = Atlas REST API + UI
 # 9092  = embedded Kafka broker (advertised to external clients)

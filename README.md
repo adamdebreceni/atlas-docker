@@ -142,6 +142,30 @@ land in the consumer.
 | `KAFKA_ADVERTISED_PORT` | `9092`      | Port Kafka advertises (match your `-p` mapping)        |
 | `ATLAS_SERVER_HEAP`     | `-Xms1g -Xmx2g` | JVM heap for the Atlas server process              |
 | `ATLAS_LOG_DIR`         | `/opt/atlas/logs` | Where Atlas / HBase / Solr write logs            |
+| `ATLAS_PERSIST_DATA`    | `false`     | Set to `true` to keep `/opt/atlas/data` across restarts (only sensible with a mounted volume — see Stability below) |
+
+## Stability
+
+Atlas's upstream `atlas_start.py` starts Solr, HBase, and the JVM as
+background daemons and does not check whether Solr or its collections
+actually came up before starting the Atlas JVM. If Solr fails (stale
+state, IO stall, missing `lsof`, etc.), the Atlas JVM retries JanusGraph
+init for ~10 minutes before giving up — a long silent hang that used to
+present as "sometimes fails to start".
+
+This image papers over that with two changes:
+
+- **Fail-fast readiness gating.** The entrypoint verifies Solr's admin
+  endpoint responds and the three collections (`vertex_index`,
+  `edge_index`, `fulltext_index`) exist before waiting on Atlas's REST
+  endpoint. Each stage has a bounded timeout; on failure the container
+  exits non-zero within ~2 minutes and dumps the last lines of
+  `solr.log` and `application.log` to `docker logs`.
+- **Ephemeral by default.** On every boot the entrypoint wipes
+  `/opt/atlas/data/{hbase-root,solr,kafka,zookeeper}` and any stale
+  pid files. `docker start <same-container>` therefore behaves like a
+  fresh `docker run`, which is the reliable path. If you've mounted a
+  volume you want to keep, set `ATLAS_PERSIST_DATA=true`.
 
 ## Credentials
 
