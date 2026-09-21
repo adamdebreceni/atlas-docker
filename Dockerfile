@@ -82,8 +82,17 @@ RUN --mount=type=cache,target=/root/.m2/repository,sharing=locked \
  && mvn -B clean package -Pdist,embedded-hbase-solr -DskipTests -Drat.skip=true
 
 # Extract the -bin tarball here so the runtime stage COPYs a plain tree.
+#
+# Pre-explode the Atlas WAR at build time. atlas_start.py expands
+# server/webapp/atlas.war into server/webapp/atlas/ via `jar -xf` on the
+# first container start if that directory is absent — a fixed, multi-second
+# cost paid on every cold boot. Doing it here bakes the exploded webapp into
+# the image so the runtime check is a no-op. `jar` is available in this
+# builder stage (JDK-based); the runtime stage no longer needs it for this.
 RUN tar -xzf distro/target/apache-atlas-${ATLAS_VERSION}-bin.tar.gz -C /opt \
- && mv /opt/apache-atlas-${ATLAS_VERSION} /opt/atlas
+ && mv /opt/apache-atlas-${ATLAS_VERSION} /opt/atlas \
+ && mkdir -p /opt/atlas/server/webapp/atlas \
+ && ( cd /opt/atlas/server/webapp/atlas && jar xf ../atlas.war )
 
 ########################  Stage 2: runtime  #############################
 # Note: JDK (not JRE) — Atlas's atlas_start.py invokes the `jar` command
@@ -125,6 +134,20 @@ ENV ATLAS_HOME=/opt/atlas \
     KAFKA_ADVERTISED_PORT=9092 \
     ATLAS_VERSION=${ATLAS_VERSION} \
     SOLR_ULIMIT_CHECKS=false
+
+# Pre-bake the Atlas store. Run the entrypoint once at build time in
+# seed mode: it bootstraps HBase + Solr + the full Atlas typedef/index
+# store (~130s of one-time work), cleanly stops everything in order, and
+# leaves a consistent seed under /opt/atlas/data marked by a .seeded
+# file. This layer captures that seed, so at runtime the entrypoint
+# reuses it and Atlas skips the bootstrap — cutting cold start from
+# ~3 min to well under a minute. Adds a one-time ~2-3 min to the build
+# and a few hundred MB to the image (the bootstrapped JanusGraph tables
+# and Solr indexes). Runs as the `atlas` user with the ENV above in
+# effect. Needs enough memory for the HBase/Solr/Atlas JVMs during build
+# (same ~6 GB as runtime).
+RUN ATLAS_SEED_BUILD=true /usr/local/bin/docker-entrypoint.sh \
+ && test -f /opt/atlas/data/.seeded
 
 # 21000 = Atlas REST API + UI
 # 9092  = embedded Kafka broker (advertised to external clients)
