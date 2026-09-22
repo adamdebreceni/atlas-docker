@@ -45,4 +45,4 @@ if [[ ! -s "$SOLR_LOCAL" ]]; then
 fi
 
 echo "==> building image ${IMAGE_TAG}"
-exec docker build -t "${IMAGE_TAG}" .
+exec docker build --platform linux/amd64 -t "${IMAGE_TAG}" .

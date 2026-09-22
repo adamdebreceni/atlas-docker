@@ -12,7 +12,7 @@
 # the built distribution. No maven, no source, no .m2 cache.
 
 ########################  Stage 1: build  ###############################
-FROM maven:3.8-eclipse-temurin-8 AS builder
+FROM --platform=linux/amd64 maven:3.8-eclipse-temurin-8 AS builder
 
 ARG ATLAS_VERSION=2.5.0
 ARG ATLAS_GIT_REF=release-${ATLAS_VERSION}
@@ -99,7 +99,7 @@ RUN tar -xzf distro/target/apache-atlas-${ATLAS_VERSION}-bin.tar.gz -C /opt \
 # at container start to expand the WAR file into an exploded webapp, and
 # `jar` ships only with the JDK, not the JRE. Trying a JRE base fails
 # with `No such file or directory: '/opt/java/openjdk/bin/jar'`.
-FROM eclipse-temurin:8-jdk-jammy
+FROM --platform=linux/amd64 eclipse-temurin:8-jdk-jammy
 
 ARG ATLAS_VERSION=2.5.0
 

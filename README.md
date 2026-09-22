@@ -87,9 +87,9 @@ the broker directly.
   `/opt/atlas/data`; every `docker run` starts fresh. If you want data
   to survive restarts, mount a volume there yourself:
   `-v atlas-data:/opt/atlas/data`.
-- Architecture: the image builds on `linux/amd64` and `linux/arm64`.
-  Apple Silicon users can pass `--platform linux/arm64` explicitly if
-  buildx picks the wrong one.
+- Architecture: the image is built for `linux/amd64`. The platform is
+  pinned on the `FROM` lines in the `Dockerfile`, so Apple Silicon hosts
+  build it under emulation (Rosetta) — no extra flags needed.
 
 ## Verification
 

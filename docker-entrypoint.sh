@@ -29,6 +29,20 @@ SOLR_PORT=9838
 SOLR_LOG="${ATLAS_DATA_DIR}/logs/solr.log"
 APPLICATION_LOG="${ATLAS_LOG_DIR}/application.log"
 
+# Scratch files capturing `solr start` and collection-creation output for
+# diagnostics. Created fresh per run via mktemp rather than hard-coded
+# /tmp paths. A fixed path such as /tmp/solr-start.out written during the
+# build-time seed gets baked into the image owned by the build uid; a
+# runtime process running under a different uid then cannot truncate it,
+# so the `>` redirect fails with "Permission denied" before solr is even
+# invoked (and the || branch prints the stale, baked-in contents). mktemp
+# always yields a path the current uid can create in the sticky,
+# world-writable /tmp. A cleanup trap removes them on exit so the
+# build-time seed run never bakes them into the image.
+SOLR_START_OUT="$(mktemp /tmp/solr-start.XXXXXX)"
+SOLR_CREATE_OUT="$(mktemp /tmp/solr-create.XXXXXX)"
+trap 'rm -f "$SOLR_START_OUT" "$SOLR_CREATE_OUT" 2>/dev/null || true' EXIT
+
 # ── Startup timing instrumentation ───────────────────────────────────
 # Bash's SECONDS builtin counts whole seconds since the shell started,
 # i.e. since this entrypoint began. We snapshot it at the top of each
@@ -146,6 +160,10 @@ wipe_volatile() {
          2>/dev/null || true
   rm -f /tmp/hbase--master.pid /tmp/hbase--master.znode 2>/dev/null || true
   rm -f "${ATLAS_LOG_DIR}/atlas.pid" 2>/dev/null || true
+  # Legacy fixed-path solr scratch files from images built before these
+  # were switched to mktemp. Best-effort — a foreign-owned leftover in the
+  # sticky /tmp can't be removed by a non-owner, hence `|| true`.
+  rm -f /tmp/solr-start.out /tmp/solr-create.out 2>/dev/null || true
   # Clear accumulated logs so each boot starts with a clean, accurate log
   # set. Also ensures the seed-build's final wipe_volatile drops build-time
   # logs from the image instead of shipping them (application.log lives in
@@ -283,16 +301,16 @@ fi
     -z localhost:2181 \
     -p "${SOLR_PORT}" \
     -s "${ATLAS_DATA_DIR}/solr" \
-    -force >/tmp/solr-start.out 2>&1 || {
+    -force >"$SOLR_START_OUT" 2>&1 || {
   echo "[entrypoint] 'solr start' returned non-zero:"
-  cat /tmp/solr-start.out
+  cat "$SOLR_START_OUT"
   dump_diagnostic_logs
   exit 1
 }
 
 echo "[entrypoint] waiting for Solr admin endpoint..."
 if ! wait_for_http_ok "http://localhost:${SOLR_PORT}/solr/admin/info/system?wt=json" 120 "Solr"; then
-  cat /tmp/solr-start.out || true
+  cat "$SOLR_START_OUT" || true
   dump_diagnostic_logs
   exit 1
 fi
@@ -316,7 +334,7 @@ for i in $(seq 1 5); do
   if "${ATLAS_HOME}/solr/bin/solr" zk upconfig \
        -z localhost:2181 \
        -n "${SOLR_CONFIGSET}" \
-       -d "${ATLAS_HOME}/conf/solr" >>/tmp/solr-create.out 2>&1; then
+       -d "${ATLAS_HOME}/conf/solr" >>"$SOLR_CREATE_OUT" 2>&1; then
     upconfig_ok=true
     break
   fi
@@ -325,7 +343,7 @@ for i in $(seq 1 5); do
 done
 if [[ "$upconfig_ok" != "true" ]]; then
   echo "[entrypoint] failed to upload Solr configset ${SOLR_CONFIGSET}."
-  cat /tmp/solr-create.out || true
+  cat "$SOLR_CREATE_OUT" || true
   dump_diagnostic_logs
   exit 1
 fi
@@ -342,7 +360,7 @@ create_collection() {
   fi
   for i in $(seq 1 5); do
     if curl -sf "http://localhost:${SOLR_PORT}/solr/admin/collections?action=CREATE&name=${name}&numShards=1&replicationFactor=1&collection.configName=${SOLR_CONFIGSET}&wt=json" \
-         >>/tmp/solr-create.out 2>&1; then
+         >>"$SOLR_CREATE_OUT" 2>&1; then
       echo "[entrypoint] created collection $name."
       return 0
     fi
@@ -365,7 +383,7 @@ for pid in "${coll_pids[@]}"; do
 done
 if [[ "$coll_failed" == "true" ]]; then
   echo "[entrypoint] one or more Solr collections failed to create."
-  cat /tmp/solr-create.out || true
+  cat "$SOLR_CREATE_OUT" || true
   dump_diagnostic_logs
   exit 1
 fi
